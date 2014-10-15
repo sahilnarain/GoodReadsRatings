@@ -1,0 +1,133 @@
+from bs4 import BeautifulSoup;
+import os;
+import re;
+from urllib.request import Request, urlopen;
+import time;
+
+list='C:\\GoodReads_Ratings\\List.htm'; #This page is essentially a full-save of  https://amazon.com/library -> Print
+titleAuth='C:\\GoodReads_Ratings\\TitlesAuthors.txt';
+queryStrings='C:\\GoodReads_Ratings\\QueryString.txt';
+result='C:\\GoodReads_Ratings\\Ratings.xls';
+
+def delOldFiles():
+    print("Initializing ...");
+    #Delete old files if they already exist
+    try:
+        os.remove(titleAuth)
+    except OSError:
+        pass
+
+    try:
+        os.remove(queryStrings)
+    except OSError:
+        pass
+
+    try:
+        os.remove(result)
+    except OSError:
+        pass
+
+def getTitleAuthList():
+    print("Fetching list of Titles and Authors ...");
+    soup = BeautifulSoup(open(list));
+
+    #Remove spans
+    [s.extract() for s in soup('span')];
+
+    #Find title/author
+    data = soup.find_all('div', attrs={'class':'field'});
+
+    #Write title+author information to file
+    opFile = open(titleAuth,'a');
+    for value in data:
+        #The following manipulations are done to optimize search hits
+        #You should probably look up regex expressions at this point of time :)
+        #Remove all dots
+        temp = re.sub('[\.]','',value.text);
+        #Remove all text after - or :
+        temp = re.sub('[:-].*$','',temp);
+        #Remove all text within brackets
+        temp = re.sub('\(.*\)','', temp);
+        #Remove all characters except comma and alphanumeric characters
+        temp = re.sub(r'[^,\w]', ' ', temp) + '\n';
+        opFile.write(temp);
+        
+    opFile.close();
+
+def makeQueryString():
+    print("Generating query strings ...");
+    # Generate query string
+    
+    #I hope you have signed up for a GoodReads Developer API key! 
+    grKey = '<Enter your GoodReads Developer API key here>'
+
+    ratingFile = open(result,'a');
+    ratingFile.write('TITLE\tAUTHOR\tRATING\n');
+    ratingFile.close();
+
+    ipFile = open(titleAuth,'r');
+    qFile = open(queryStrings,'a');
+
+    i=0;
+
+    for line in ipFile:
+        if(i%2==0):
+            qString=line;
+        elif(i%2!=0):
+            line = re.sub(r'[,].*$','',line);
+            qString=qString+line;
+            qString=re.sub(r'[\W_]+', '%20', qString);
+            #print(qString);
+            qFile.write('https://www.goodreads.com/search.xml?key='+grKey+'&q='+qString+'\n');
+        i=i+1;
+
+    ipFile.close();
+    qFile.close();
+
+def getRatingsFromGoodreads():
+    print("Fetching ratings from GoodReads ...");
+    #Build API call to GoodReads using query strings
+
+    qFile = open(queryStrings,'r');
+    noMatchFoundCount=0;
+    for line in qFile:
+        #Add minimum of 1 second delay - according to GoodReads API T&C :)
+        #time.sleep(1.5);
+        
+        try:
+            req=Request(line);
+            response=urlopen(req).read();
+            soup=BeautifulSoup(response);
+        except:
+            pass
+        try:
+            print('--------------------------------------------------');
+            print("Title: " + soup.title.text);
+            print("Author: " + soup.find("name").text);
+            print("Rating: " + soup.average_rating.text);
+            ratingFile = open(result,'a');
+            ratingFile.write(soup.title.text + '\t' + soup.find("name").text + '\t' + soup.average_rating.text + '\n');
+            ratingFile.close();
+        except:
+            noMatchFoundCount=noMatchFoundCount+1;
+            #print("Error: No search results found!" + " Total count: " + str(noMatchFoundCount));
+            pass
+
+    qFile.close();
+
+
+    print("No results found for : " + str(noMatchFoundCount) + ' searches.');
+
+def delTempFiles():
+    print('--------------------------------------------------');
+    print("Deleting temporary files ...");
+    os.remove(titleAuth);
+    os.remove(queryStrings);
+
+
+#Awesome. All set! Call all functions now.
+delOldFiles();
+getTitleAuthList();
+makeQueryString();
+getRatingsFromGoodreads();
+delTempFiles();
